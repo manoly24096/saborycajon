@@ -1091,21 +1091,21 @@ footer{
       <div class="form-row">
         <div class="form-group">
           <label>Nombre</label>
-          <input type="text" placeholder="Tu nombre">
+          <input id="res-nombre" type="text" placeholder="Tu nombre">
         </div>
         <div class="form-group">
           <label>Teléfono</label>
-          <input type="tel" placeholder="+51 9XX XXX XXX">
+          <input id="res-telefono" type="tel" placeholder="+51 9XX XXX XXX">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Fecha</label>
-          <input type="date">
+          <input id="res-fecha" type="date">
         </div>
         <div class="form-group">
           <label>Personas</label>
-          <select>
+          <select id="res-personas">
             <option>1–2 personas</option>
             <option>3–5 personas</option>
             <option>6–10 personas</option>
@@ -1123,7 +1123,7 @@ footer{
           <option>Fin de curso 🎓</option>
         </select>
       </div>
-      <button class="form-submit" onclick="window.open('https://wa.me/51997170385?text=Hola%2C%20quisiera%20hacer%20una%20reserva%20en%20Sabor%20y%20Caj%C3%B3n','_blank')">
+      <button class="form-submit" onclick="enviarReserva()">
         Confirmar por WhatsApp →
       </button>
     </div>
@@ -1238,6 +1238,22 @@ const nav = document.getElementById('main-nav');
 window.addEventListener('scroll', () => {
   nav.classList.toggle('scrolled', window.scrollY > 60);
 });
+
+function enviarReserva() {
+  const nombre   = document.getElementById('res-nombre').value.trim() || 'No indicado';
+  const telefono = document.getElementById('res-telefono').value.trim() || 'No indicado';
+  const fecha    = document.getElementById('res-fecha').value || 'No indicada';
+  const personas = document.getElementById('res-personas').value;
+  const ocasion  = document.getElementById('res-ocasion').value;
+  const msg = `Hola, quisiera hacer una reserva en Sabor y Cajón 🍽️
+
+👤 Nombre: ${nombre}
+📞 Teléfono: ${telefono}
+📅 Fecha: ${fecha}
+👥 Personas: ${personas}
+🎉 Ocasión: ${ocasion}`;
+  window.open('https://wa.me/51997170385?text=' + encodeURIComponent(msg), '_blank');
+}
 </script>
 </body>
 </html>
