@@ -1,2 +1,1 @@
-token
-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
+token guardado en lugar seguro
