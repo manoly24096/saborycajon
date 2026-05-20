@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Edit3,
   PackageX,
+  Boxes,
 } from "lucide-react";
 import { supabase, type PlatoMaster } from "@/lib/supabase";
 
@@ -61,6 +62,10 @@ export default function MenuConfig() {
 
   // Catálogo colapsado
   const [catalogoAbierto, setCatalogoAbierto] = useState(true);
+
+  // Stock en vivo — id → valor editado localmente antes de guardar
+  const [stockEdits,   setStockEdits]   = useState<Record<string, string>>({});
+  const [stockSaving,  setStockSaving]  = useState<Record<string, boolean>>({});
 
   // ── Carga ────────────────────────────────────────────────
   const cargarPlatos = async () => {
@@ -112,6 +117,39 @@ export default function MenuConfig() {
       prev.map((p) => (p.id === id ? { ...p, stockInput: val.replace(/\D/g, "") } : p))
     );
   };
+
+  // ── Inventario en vivo: guardar stock al instante ────────
+  const handleStockChange = (id: string, val: string) => {
+    setStockEdits((prev) => ({ ...prev, [id]: val.replace(/\D/g, "") }));
+  };
+
+  const handleStockGuardar = async (id: string) => {
+    const raw = stockEdits[id];
+    if (raw === undefined) return; // sin cambios
+    const nuevo = parseInt(raw);
+    if (isNaN(nuevo)) return;
+
+    setStockSaving((prev) => ({ ...prev, [id]: true }));
+    const { error } = await supabase
+      .from("platos_master")
+      .update({ stock_actual: Math.max(0, nuevo) })
+      .eq("id", id);
+
+    setStockSaving((prev) => ({ ...prev, [id]: false }));
+
+    if (error) {
+      setStatus({ type: "error", msg: error.message });
+    } else {
+      // Refleja en el estado local sin recargar todo
+      setPlatos((prev) =>
+        prev.map((p) => p.id === id ? { ...p, stock_actual: Math.max(0, nuevo) } : p)
+      );
+      setStockEdits((prev) => { const n = { ...prev }; delete n[id]; return n; });
+    }
+  };
+
+  const getStockDisplay = (p: PlatoLocal): string =>
+    stockEdits[p.id] !== undefined ? stockEdits[p.id] : String(p.stock_actual);
 
   // ── Publicar / Actualizar menú ───────────────────────────
   const handlePublicar = async () => {
@@ -337,6 +375,167 @@ export default function MenuConfig() {
             <X size={13} />
             Cancelar
           </button>
+        </div>
+      )}
+
+      {/* ══ INVENTARIO DEL DÍA (siempre visible si hay menú) ══ */}
+      {hayMenuPublicado && (
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-1.5 bg-indigo-500/20 rounded-lg">
+                <Boxes className="text-indigo-400" size={16} />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-200">Inventario del Día</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Ajusta el stock de cada plato activo — se guarda al presionar ✓
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={cargarPlatos}
+              disabled={loading}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300
+                         hover:bg-slate-800 transition-colors"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            </button>
+          </div>
+
+          {/* Tabla de platos activos */}
+          <div className="divide-y divide-slate-800/60">
+            {platos.filter((p) => p.activo_hoy).length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-slate-600">
+                Sin platos activos hoy
+              </p>
+            ) : (
+              platos
+                .filter((p) => p.activo_hoy)
+                .map((plato) => {
+                  const valorActual  = getStockDisplay(plato);
+                  const hayPendiente = stockEdits[plato.id] !== undefined;
+                  const guardando    = !!stockSaving[plato.id];
+                  const agotado      = plato.stock_actual === 0 && !hayPendiente;
+                  const numDisplay   = parseInt(valorActual) || 0;
+
+                  return (
+                    <div key={plato.id}
+                         className="px-5 py-3.5 flex items-center gap-4">
+
+                      {/* Nombre + badge agotado */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-slate-200 truncate">
+                            {plato.nombre_plato}
+                          </span>
+                          {agotado && (
+                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded
+                                             bg-red-500/20 text-red-400 tracking-wider shrink-0">
+                              AGOTADO
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500">S/ {plato.precio.toFixed(2)}</span>
+                      </div>
+
+                      {/* Controles de stock */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Botón − */}
+                        <button
+                          onClick={() => {
+                            const cur = parseInt(getStockDisplay(plato)) || 0;
+                            if (cur > 0) handleStockChange(plato.id, String(cur - 1));
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-xl
+                                     bg-slate-700 hover:bg-slate-600 text-slate-300
+                                     font-black text-base transition-colors"
+                        >
+                          −
+                        </button>
+
+                        {/* Input numérico */}
+                        <input
+                          type="number"
+                          min={0}
+                          max={999}
+                          value={valorActual}
+                          onChange={(e) => handleStockChange(plato.id, e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleStockGuardar(plato.id);
+                            if (e.key === "Escape") {
+                              setStockEdits((prev) => {
+                                const n = { ...prev }; delete n[plato.id]; return n;
+                              });
+                            }
+                          }}
+                          className={`w-16 text-center text-base font-black rounded-xl
+                                      border-2 py-1.5 focus:outline-none transition-all ${
+                            hayPendiente
+                              ? "bg-amber-500/10 border-amber-500/50 text-amber-300 focus:ring-2 focus:ring-amber-500/40"
+                              : agotado
+                                ? "bg-red-500/10 border-red-500/40 text-red-400"
+                                : "bg-slate-800 border-slate-700 text-slate-100 focus:border-indigo-500"
+                          }`}
+                        />
+
+                        {/* Botón + */}
+                        <button
+                          onClick={() => {
+                            const cur = parseInt(getStockDisplay(plato)) || 0;
+                            handleStockChange(plato.id, String(cur + 1));
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-xl
+                                     bg-indigo-600 hover:bg-indigo-500 text-white
+                                     font-black text-base transition-colors"
+                        >
+                          +
+                        </button>
+
+                        {/* Botón guardar (aparece solo si hay cambio pendiente) */}
+                        {hayPendiente ? (
+                          <button
+                            onClick={() => handleStockGuardar(plato.id)}
+                            disabled={guardando}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-xl
+                                       bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50
+                                       text-white text-xs font-bold transition-colors"
+                          >
+                            {guardando
+                              ? <RefreshCw size={11} className="animate-spin" />
+                              : <CheckCircle2 size={11} />
+                            }
+                            {guardando ? "…" : "Guardar"}
+                          </button>
+                        ) : (
+                          /* Indicador de unidades restantes */
+                          <span className={`text-xs font-medium w-16 text-center ${
+                            agotado ? "text-red-500" : numDisplay <= 5 ? "text-amber-400" : "text-slate-500"
+                          }`}>
+                            {agotado
+                              ? "agotado"
+                              : numDisplay <= 5
+                                ? `⚠ ${numDisplay} uds`
+                                : `${numDisplay} uds`
+                            }
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+
+          {/* Tip de uso */}
+          <div className="px-5 py-3 border-t border-slate-800/60 bg-slate-950/30">
+            <p className="text-xs text-slate-600">
+              Tip: usa <kbd className="bg-slate-800 text-slate-400 px-1 py-0.5 rounded text-[10px]">Enter</kbd> para guardar rápido ·{" "}
+              <kbd className="bg-slate-800 text-slate-400 px-1 py-0.5 rounded text-[10px]">Esc</kbd> para cancelar
+            </p>
+          </div>
         </div>
       )}
 
