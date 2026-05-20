@@ -582,28 +582,104 @@ export default function MenuConfig() {
           {/* Resumen + botón publicar/actualizar */}
           {platos.some((p) => p.seleccionado) && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-300">
-                {hayMenuPublicado ? "Menú a actualizar" : "Menú a publicar"}
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-300">
+                  {hayMenuPublicado ? "Menú a actualizar" : "Menú a publicar"}
+                </h3>
+                <span className="text-xs text-slate-500">
+                  Edita la cantidad directamente en cada plato
+                </span>
+              </div>
+
+              {/* Chips editables */}
               <div className="flex flex-wrap gap-2">
                 {platos.filter((p) => p.seleccionado).map((p) => {
-                  const agotado = p.activo_hoy && p.stock_actual === 0 && p.seleccionado;
+                  const agotado = p.stockInput === "0" || p.stockInput === "";
                   return (
-                    <div key={p.id}
-                         className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs ${
-                           agotado
-                             ? "bg-red-500/10 border-red-500/30"
-                             : "bg-indigo-600/10 border-indigo-500/30"
-                         }`}>
-                      <span className="text-slate-200 font-medium">{p.nombre_plato}</span>
-                      {agotado
-                        ? <span className="text-red-400 font-black tracking-wider text-[10px]">AGOTADO</span>
-                        : <span className="text-indigo-400 font-bold">{p.stockInput || "0"} uds</span>
-                      }
+                    <div
+                      key={p.id}
+                      className={`group flex items-center gap-2 border rounded-xl
+                                  px-3 py-2 transition-all ${
+                        agotado
+                          ? "bg-red-500/10 border-red-500/40"
+                          : "bg-indigo-600/10 border-indigo-500/30 hover:border-indigo-400"
+                      }`}
+                    >
+                      {/* Nombre */}
+                      <span className="text-xs font-semibold text-slate-200 whitespace-nowrap">
+                        {p.nombre_plato}
+                      </span>
+
+                      {/* Separador */}
+                      <span className="text-slate-700">·</span>
+
+                      {/* Input de stock inline */}
+                      <div className="flex items-center gap-1">
+                        {/* Botón − */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const cur = parseInt(p.stockInput || "0");
+                            if (cur > 0) setStock(p.id, String(cur - 1));
+                          }}
+                          className="w-5 h-5 flex items-center justify-center rounded-md
+                                     bg-slate-700 hover:bg-slate-600 text-slate-300
+                                     text-xs font-black transition-colors"
+                        >
+                          −
+                        </button>
+
+                        {/* Número editable */}
+                        <input
+                          type="number"
+                          min={0}
+                          max={999}
+                          value={p.stockInput}
+                          onChange={(e) => setStock(p.id, e.target.value)}
+                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                          className={`w-10 text-center text-sm font-black rounded-lg
+                                      border focus:outline-none focus:ring-2 px-1 py-0.5
+                                      bg-transparent transition-colors ${
+                            agotado
+                              ? "text-red-400 border-red-500/40 focus:ring-red-500/50"
+                              : "text-indigo-300 border-indigo-500/30 focus:ring-indigo-500/50"
+                          }`}
+                        />
+
+                        {/* Botón + */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const cur = parseInt(p.stockInput || "0");
+                            setStock(p.id, String(cur + 1));
+                          }}
+                          className="w-5 h-5 flex items-center justify-center rounded-md
+                                     bg-indigo-600 hover:bg-indigo-500 text-white
+                                     text-xs font-black transition-colors"
+                        >
+                          +
+                        </button>
+
+                        <span className={`text-[10px] font-medium whitespace-nowrap ${
+                          agotado ? "text-red-500" : "text-slate-500"
+                        }`}>
+                          {agotado ? "AGOTADO" : "uds"}
+                        </span>
+                      </div>
+
+                      {/* Quitar plato del menú */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePlato(p.id); }}
+                        className="ml-1 text-slate-600 hover:text-red-400 transition-colors"
+                        title="Quitar del menú"
+                      >
+                        <X size={11} />
+                      </button>
                     </div>
                   );
                 })}
               </div>
+
               <button
                 onClick={handlePublicar}
                 disabled={saving}
