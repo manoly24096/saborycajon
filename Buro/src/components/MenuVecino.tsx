@@ -209,25 +209,38 @@ export default function MenuVecino() {
             </div>
           ) : (
             platos.map((plato) => {
-              const qty      = getQty(plato.id);
-              const agotado  = plato.stock_actual === 0;
+              const qty     = getQty(plato.id);
+              const agotado = plato.stock_actual === 0;
 
               return (
                 <div
                   key={plato.id}
                   className={`
-                    flex items-center gap-3 p-4 rounded-2xl border-2 transition-all
+                    relative flex items-center gap-3 p-4 rounded-2xl border-2 transition-all overflow-hidden
                     ${agotado
-                      ? "bg-slate-900/40 border-slate-800 opacity-60"
+                      ? "bg-slate-900/50 border-slate-800"
                       : qty > 0
                         ? "bg-indigo-600/10 border-indigo-500/50 shadow-lg shadow-indigo-500/10"
                         : "bg-slate-900 border-slate-800"
                     }
                   `}
                 >
-                  <div className="flex-1 min-w-0">
+                  {/* Banda diagonal AGOTADO */}
+                  {agotado && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="absolute inset-0 bg-slate-950/50" />
+                      <span className="relative z-10 text-base font-black tracking-[0.2em]
+                                       text-red-500/80 rotate-[-20deg] select-none
+                                       border-2 border-red-500/40 px-4 py-1 rounded-lg
+                                       bg-slate-950/80">
+                        AGOTADO
+                      </span>
+                    </div>
+                  )}
+
+                  <div className={`flex-1 min-w-0 ${agotado ? "opacity-40" : ""}`}>
                     <p className={`text-sm font-bold leading-tight ${
-                      agotado ? "text-slate-500 line-through" : "text-slate-100"
+                      agotado ? "text-slate-500" : "text-slate-100"
                     }`}>
                       {plato.nombre_plato}
                     </p>
@@ -236,12 +249,7 @@ export default function MenuVecino() {
                       <span className={`text-sm font-black ${agotado ? "text-slate-600" : "text-emerald-400"}`}>
                         S/ {plato.precio.toFixed(2)}
                       </span>
-                      {agotado ? (
-                        <span className="text-[10px] font-black text-slate-500 bg-slate-800
-                                         px-2 py-0.5 rounded-full tracking-wider">
-                          AGOTADO
-                        </span>
-                      ) : (
+                      {!agotado && (
                         <span className="text-[10px] text-slate-600">
                           {plato.stock_actual} disponibles
                         </span>
@@ -250,7 +258,7 @@ export default function MenuVecino() {
                   </div>
 
                   {/* Controles */}
-                  <div className="flex items-center gap-2.5 shrink-0">
+                  <div className={`flex items-center gap-2.5 shrink-0 ${agotado ? "opacity-20 pointer-events-none" : ""}`}>
                     <button
                       onClick={() => updateQty(plato, -1)}
                       disabled={qty === 0 || agotado}

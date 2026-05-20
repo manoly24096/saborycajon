@@ -15,6 +15,8 @@ import {
   Save,
   ChevronDown,
   ChevronUp,
+  Edit3,
+  PackageX,
 } from "lucide-react";
 import { supabase, type PlatoMaster } from "@/lib/supabase";
 
@@ -40,23 +42,24 @@ const MAX_ACTIVOS = 6;
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function MenuConfig() {
-  const [platos,       setPlatos]       = useState<PlatoLocal[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [saving,       setSaving]       = useState(false);
-  const [status,       setStatus]       = useState<Status | null>(null);
+  const [platos,          setPlatos]          = useState<PlatoLocal[]>([]);
+  const [loading,         setLoading]         = useState(true);
+  const [saving,          setSaving]          = useState(false);
+  const [status,          setStatus]          = useState<Status | null>(null);
+  const [modoEdicion,     setModoEdicion]     = useState(false); // true = editando menú publicado
 
   // CRUD modal
-  const [modalAbierto, setModalAbierto] = useState(false);
-  const [editando,     setEditando]     = useState<PlatoMaster | null>(null); // null = crear nuevo
-  const [form,         setForm]         = useState<FormPlato>(FORM_VACIO);
-  const [formError,    setFormError]    = useState<string | null>(null);
-  const [guardandoForm,setGuardandoForm]= useState(false);
+  const [modalAbierto,    setModalAbierto]    = useState(false);
+  const [editando,        setEditando]        = useState<PlatoMaster | null>(null);
+  const [form,            setForm]            = useState<FormPlato>(FORM_VACIO);
+  const [formError,       setFormError]       = useState<string | null>(null);
+  const [guardandoForm,   setGuardandoForm]   = useState(false);
 
   // Confirmar eliminación
-  const [eliminando,   setEliminando]   = useState<PlatoMaster | null>(null);
-  const [confirmando,  setConfirmando]  = useState(false);
+  const [eliminando,      setEliminando]      = useState<PlatoMaster | null>(null);
+  const [confirmando,     setConfirmando]     = useState(false);
 
-  // Sección colapsable del catálogo
+  // Catálogo colapsado
   const [catalogoAbierto, setCatalogoAbierto] = useState(true);
 
   // ── Carga ────────────────────────────────────────────────
@@ -82,11 +85,15 @@ export default function MenuConfig() {
 
   useEffect(() => { cargarPlatos(); }, []);
 
-  // ── Selección de platos del día ──────────────────────────
-  const activosCount   = platos.filter((p) => p.seleccionado).length;
-  const limitAlcanzado = activosCount >= MAX_ACTIVOS;
+  // ── Derivados ────────────────────────────────────────────
+  const activosCount     = platos.filter((p) => p.seleccionado).length;
+  const limitAlcanzado   = activosCount >= MAX_ACTIVOS;
+  const hayMenuPublicado = platos.some((p) => p.activo_hoy);
+  const enEdicion        = modoEdicion || !hayMenuPublicado;
 
+  // ── Selección de platos ──────────────────────────────────
   const togglePlato = (id: string) => {
+    if (!enEdicion) return;
     setPlatos((prev) =>
       prev.map((p) => {
         if (p.id !== id) return p;
@@ -106,7 +113,7 @@ export default function MenuConfig() {
     );
   };
 
-  // ── Publicar menú del día ────────────────────────────────
+  // ── Publicar / Actualizar menú ───────────────────────────
   const handlePublicar = async () => {
     const sel = platos.filter((p) => p.seleccionado);
     if (!sel.length)
@@ -119,6 +126,7 @@ export default function MenuConfig() {
     setSaving(true);
     setStatus(null);
 
+    // Reset todos
     const { error: errReset } = await supabase
       .from("platos_master")
       .update({ activo_hoy: false, stock_actual: 0 })
@@ -130,6 +138,7 @@ export default function MenuConfig() {
       return;
     }
 
+    // Activar seleccionados
     for (const p of sel) {
       const { error } = await supabase
         .from("platos_master")
@@ -143,11 +152,15 @@ export default function MenuConfig() {
     }
 
     setSaving(false);
-    setStatus({ type: "success", msg: `✓ Menú publicado con ${sel.length} platos activos.` });
+    setModoEdicion(false);
+    setStatus({
+      type: "success",
+      msg: `✓ Menú ${hayMenuPublicado ? "actualizado" : "publicado"} con ${sel.length} platos activos.`,
+    });
     cargarPlatos();
   };
 
-  // ── CRUD: Abrir modal ────────────────────────────────────
+  // ── CRUD: modal ──────────────────────────────────────────
   const abrirCrear = () => {
     setEditando(null);
     setForm(FORM_VACIO);
@@ -155,13 +168,10 @@ export default function MenuConfig() {
     setModalAbierto(true);
   };
 
-  const abrirEditar = (plato: PlatoMaster) => {
+  const abrirEditar = (plato: PlatoMaster, e: React.MouseEvent) => {
+    e.stopPropagation();
     setEditando(plato);
-    setForm({
-      nombre_plato: plato.nombre_plato,
-      precio:       String(plato.precio),
-      descripcion:  plato.descripcion,
-    });
+    setForm({ nombre_plato: plato.nombre_plato, precio: String(plato.precio), descripcion: plato.descripcion });
     setFormError(null);
     setModalAbierto(true);
   };
@@ -173,52 +183,28 @@ export default function MenuConfig() {
     setFormError(null);
   };
 
-  // ── CRUD: Guardar (crear o editar) ───────────────────────
   const handleGuardar = async () => {
     const nombre = form.nombre_plato.trim();
     const precio = parseFloat(form.precio);
-    if (!nombre)    return setFormError("El nombre es obligatorio.");
-    if (isNaN(precio) || precio < 0)
-      return setFormError("Ingresa un precio válido.");
+    if (!nombre)               return setFormError("El nombre es obligatorio.");
+    if (isNaN(precio) || precio < 0) return setFormError("Ingresa un precio válido.");
 
     setGuardandoForm(true);
     setFormError(null);
 
     if (editando) {
-      // UPDATE
       const { error } = await supabase
         .from("platos_master")
-        .update({
-          nombre_plato: nombre,
-          precio,
-          descripcion: form.descripcion.trim(),
-        })
+        .update({ nombre_plato: nombre, precio, descripcion: form.descripcion.trim() })
         .eq("id", editando.id);
-
-      if (error) {
-        setFormError(error.message);
-        setGuardandoForm(false);
-        return;
-      }
-      setStatus({ type: "success", msg: `"${nombre}" actualizado correctamente.` });
+      if (error) { setFormError(error.message); setGuardandoForm(false); return; }
+      setStatus({ type: "success", msg: `"${nombre}" actualizado.` });
     } else {
-      // INSERT
       const { error } = await supabase
         .from("platos_master")
-        .insert({
-          nombre_plato: nombre,
-          precio,
-          descripcion:  form.descripcion.trim(),
-          activo_hoy:   false,
-          stock_actual: 0,
-        });
-
+        .insert({ nombre_plato: nombre, precio, descripcion: form.descripcion.trim(), activo_hoy: false, stock_actual: 0 });
       if (error) {
-        setFormError(
-          error.code === "23505"
-            ? `Ya existe un plato llamado "${nombre}".`
-            : error.message
-        );
+        setFormError(error.code === "23505" ? `Ya existe un plato llamado "${nombre}".` : error.message);
         setGuardandoForm(false);
         return;
       }
@@ -230,28 +216,22 @@ export default function MenuConfig() {
     cargarPlatos();
   };
 
-  // ── CRUD: Eliminar ───────────────────────────────────────
+  // ── CRUD: eliminar ───────────────────────────────────────
   const handleEliminar = async () => {
     if (!eliminando) return;
     setConfirmando(true);
-
-    const { error } = await supabase
-      .from("platos_master")
-      .delete()
-      .eq("id", eliminando.id);
-
+    const { error } = await supabase.from("platos_master").delete().eq("id", eliminando.id);
     setConfirmando(false);
     setEliminando(null);
-
     if (error) {
       setStatus({ type: "error", msg: error.message });
     } else {
-      setStatus({ type: "success", msg: `"${eliminando.nombre_plato}" eliminado del catálogo.` });
+      setStatus({ type: "success", msg: `"${eliminando.nombre_plato}" eliminado.` });
       cargarPlatos();
     }
   };
 
-  // ── Render ───────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
 
@@ -306,12 +286,62 @@ export default function MenuConfig() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          SECCIÓN A: CATÁLOGO MAESTRO (CRUD)
-      ══════════════════════════════════════════════════ */}
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+      {/* ══ BANNER: Menú ya publicado ══════════════════════ */}
+      {hayMenuPublicado && !modoEdicion && (
+        <div className="flex items-center justify-between gap-4 p-4 rounded-2xl
+                        bg-emerald-500/10 border border-emerald-500/30">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
+              <CheckCircle2 className="text-emerald-400" size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-emerald-300">Menú del día publicado</p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                {platos.filter((p) => p.activo_hoy).map((p) => p.nombre_plato).join(" · ")}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => { setModoEdicion(true); setStatus(null); }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600/20
+                       hover:bg-emerald-600/40 text-emerald-300 text-sm font-semibold
+                       border border-emerald-500/30 transition-colors shrink-0"
+          >
+            <Edit3 size={13} />
+            Editar menú
+          </button>
+        </div>
+      )}
 
-        {/* Cabecera colapsable */}
+      {/* ══ BANNER: Modo edición activo ════════════════════ */}
+      {hayMenuPublicado && modoEdicion && (
+        <div className="flex items-center justify-between gap-4 p-4 rounded-2xl
+                        bg-amber-500/10 border border-amber-500/30">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
+              <Edit3 className="text-amber-400" size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-300">Editando menú publicado</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                Modifica la selección y el stock, luego presiona "Actualizar Menú"
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => { setModoEdicion(false); cargarPlatos(); setStatus(null); }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800
+                       hover:bg-slate-700 text-slate-300 text-sm font-semibold
+                       transition-colors shrink-0"
+          >
+            <X size={13} />
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {/* ══ CATÁLOGO MAESTRO ════════════════════════════════ */}
+      <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
         <button
           onClick={() => setCatalogoAbierto(!catalogoAbierto)}
           className="w-full px-5 py-4 flex items-center justify-between
@@ -336,75 +366,90 @@ export default function MenuConfig() {
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="px-5 py-4 flex items-center gap-4 animate-pulse">
                     <div className="h-4 bg-slate-800 rounded w-48" />
-                    <div className="h-4 bg-slate-800 rounded w-24 ml-auto" />
+                    <div className="h-4 bg-slate-800 rounded w-20 ml-auto" />
                   </div>
                 ))}
               </div>
             ) : (
               <div className="divide-y divide-slate-800/60">
-                {platos.map((plato) => (
-                  <div
-                    key={plato.id}
-                    className="px-5 py-3.5 flex items-center gap-4
-                               hover:bg-slate-800/30 transition-colors group"
-                  >
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-200 truncate">
-                        {plato.nombre_plato}
-                      </p>
-                      <p className="text-xs text-slate-500 truncate mt-0.5">
-                        {plato.descripcion || "—"}
-                      </p>
-                    </div>
+                {platos.map((plato) => {
+                  const agotado = plato.activo_hoy && plato.stock_actual === 0;
+                  return (
+                    <div
+                      key={plato.id}
+                      className="px-5 py-3.5 flex items-center gap-4
+                                 hover:bg-slate-800/30 transition-colors group"
+                    >
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-200 truncate">
+                            {plato.nombre_plato}
+                          </p>
+                          {agotado && (
+                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded
+                                             bg-red-500/20 text-red-400 tracking-wider shrink-0">
+                              AGOTADO
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">
+                          {plato.descripcion || "—"}
+                        </p>
+                      </div>
 
-                    {/* Precio */}
-                    <span className="text-sm font-bold text-emerald-400 shrink-0 w-20 text-right">
-                      S/ {plato.precio.toFixed(2)}
-                    </span>
-
-                    {/* Estado activo */}
-                    {plato.activo_hoy ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full
-                                       bg-indigo-500/15 text-indigo-400 shrink-0 w-24 text-center">
-                        Activo · {plato.stock_actual} uds
+                      {/* Precio */}
+                      <span className="text-sm font-bold text-emerald-400 shrink-0 w-20 text-right">
+                        S/ {plato.precio.toFixed(2)}
                       </span>
-                    ) : (
-                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full
-                                       bg-slate-800 text-slate-600 shrink-0 w-24 text-center">
-                        Inactivo
-                      </span>
-                    )}
 
-                    {/* Acciones */}
-                    <div className="flex items-center gap-1 shrink-0
-                                    opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => abrirEditar(plato)}
-                        className="p-1.5 rounded-lg hover:bg-indigo-500/15 text-slate-500
-                                   hover:text-indigo-400 transition-colors"
-                        title="Editar"
-                      >
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        onClick={() => setEliminando(plato)}
-                        className="p-1.5 rounded-lg hover:bg-red-500/15 text-slate-500
-                                   hover:text-red-400 transition-colors"
-                        title="Eliminar"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {/* Estado */}
+                      {agotado ? (
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full
+                                         bg-red-500/15 text-red-400 shrink-0 w-24 text-center
+                                         tracking-wider">
+                          AGOTADO
+                        </span>
+                      ) : plato.activo_hoy ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full
+                                         bg-indigo-500/15 text-indigo-400 shrink-0 w-24 text-center">
+                          Activo · {plato.stock_actual} uds
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full
+                                         bg-slate-800 text-slate-600 shrink-0 w-24 text-center">
+                          Inactivo
+                        </span>
+                      )}
+
+                      {/* Acciones hover */}
+                      <div className="flex items-center gap-1 shrink-0
+                                      opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => abrirEditar(plato, e)}
+                          className="p-1.5 rounded-lg hover:bg-indigo-500/15 text-slate-500
+                                     hover:text-indigo-400 transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setEliminando(plato); }}
+                          className="p-1.5 rounded-lg hover:bg-red-500/15 text-slate-500
+                                     hover:text-red-400 transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
-                {/* Fila para agregar rápido */}
                 <button
                   onClick={abrirCrear}
                   className="w-full px-5 py-3.5 flex items-center gap-2 text-slate-600
-                             hover:text-indigo-400 hover:bg-slate-800/30 transition-colors
-                             text-sm"
+                             hover:text-indigo-400 hover:bg-slate-800/30 transition-colors text-sm"
                 >
                   <Plus size={14} />
                   Agregar nuevo plato al catálogo
@@ -415,209 +460,209 @@ export default function MenuConfig() {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════
-          SECCIÓN B: SELECCIÓN DEL MENÚ DEL DÍA
-      ══════════════════════════════════════════════════ */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-900 border border-slate-700
-                          px-3 py-1.5 rounded-full">
-            <Hash size={13} className="text-indigo-400" />
-            <span className="text-sm text-slate-300">
-              <span className={`font-bold ${limitAlcanzado ? "text-amber-400" : "text-indigo-400"}`}>
-                {activosCount}
+      {/* ══ SELECCIÓN DEL MENÚ DEL DÍA ══════════════════════ */}
+      {enEdicion && (
+        <div className="space-y-4">
+          {/* Contador */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-700
+                            px-3 py-1.5 rounded-full">
+              <Hash size={13} className="text-indigo-400" />
+              <span className="text-sm text-slate-300">
+                <span className={`font-bold ${limitAlcanzado ? "text-amber-400" : "text-indigo-400"}`}>
+                  {activosCount}
+                </span>
+                <span className="text-slate-500"> / {MAX_ACTIVOS} platos activos hoy</span>
               </span>
-              <span className="text-slate-500"> / {MAX_ACTIVOS} platos activos hoy</span>
-            </span>
+            </div>
+            {limitAlcanzado && (
+              <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30
+                               px-2.5 py-1 rounded-full">
+                Límite diario alcanzado
+              </span>
+            )}
           </div>
-          {limitAlcanzado && (
-            <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30
-                             px-2.5 py-1 rounded-full">
-              Límite diario alcanzado
-            </span>
-          )}
-        </div>
 
-        <p className="text-sm text-slate-500">
-          Selecciona los platos que estarán disponibles hoy e ingresa el stock inicial:
-        </p>
+          <p className="text-sm text-slate-500">
+            Selecciona los platos disponibles hoy e ingresa el stock inicial:
+          </p>
 
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-24 bg-slate-900 rounded-xl border border-slate-800 animate-pulse" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {platos.map((plato) => (
-              <div
-                key={plato.id}
-                onClick={() => togglePlato(plato.id)}
-                className={`
-                  group relative rounded-xl border-2 p-4 cursor-pointer
-                  transition-all duration-200 select-none
-                  ${plato.seleccionado
-                    ? "bg-indigo-600/10 border-indigo-500 shadow-lg shadow-indigo-500/10"
-                    : limitAlcanzado
-                      ? "bg-slate-900 border-slate-800 opacity-50 cursor-not-allowed"
-                      : "bg-slate-900 border-slate-800 hover:border-slate-600 hover:bg-slate-800/50"
-                  }
-                `}
-              >
-                {/* Checkbox visual */}
-                <div className={`
-                  absolute top-3 right-3 w-5 h-5 rounded-full border-2 flex items-center justify-center
-                  transition-all ${plato.seleccionado ? "bg-indigo-600 border-indigo-500" : "border-slate-600"}
-                `}>
-                  {plato.seleccionado && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
-                      <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8"
-                            strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-
-                <p className="text-sm font-semibold text-slate-200 pr-6 leading-tight">
-                  {plato.nombre_plato}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{plato.descripcion}</p>
-                <p className="text-sm font-bold text-emerald-400 mt-1.5">
-                  S/ {plato.precio.toFixed(2)}
-                </p>
-
-                {plato.seleccionado && (
-                  <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <label className="text-xs text-slate-400 whitespace-nowrap">Stock:</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={999}
-                      value={plato.stockInput}
-                      onChange={(e) => setStock(plato.id, e.target.value)}
-                      placeholder="20"
-                      className="w-full bg-slate-800 border border-indigo-500/40 text-slate-100
-                                 rounded-lg px-2 py-1 text-sm font-bold text-center
-                                 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <span className="text-xs text-slate-500 whitespace-nowrap">uds.</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Resumen y botón publicar */}
-        {platos.some((p) => p.seleccionado) && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-slate-300">Menú a publicar</h3>
-            <div className="flex flex-wrap gap-2">
-              {platos.filter((p) => p.seleccionado).map((p) => (
-                <div key={p.id}
-                     className="flex items-center gap-2 bg-indigo-600/10 border border-indigo-500/30
-                                px-3 py-1.5 rounded-lg text-xs">
-                  <span className="text-slate-200 font-medium">{p.nombre_plato}</span>
-                  <span className="text-indigo-400 font-bold">{p.stockInput || "0"} uds</span>
-                </div>
+          {/* Grid de selección */}
+          {loading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-24 bg-slate-900 rounded-xl border border-slate-800 animate-pulse" />
               ))}
             </div>
-            <button
-              onClick={handlePublicar}
-              disabled={saving}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50
-                         rounded-xl text-white font-bold text-sm transition-colors flex
-                         items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
-            >
-              <Zap size={15} />
-              {saving ? "Publicando…" : "Publicar Menú del Día"}
-            </button>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {platos.map((plato) => {
+                const agotado = plato.activo_hoy && plato.stock_actual === 0 && plato.seleccionado;
+                return (
+                  <div
+                    key={plato.id}
+                    onClick={() => togglePlato(plato.id)}
+                    className={`
+                      relative rounded-xl border-2 p-4 cursor-pointer
+                      transition-all duration-200 select-none
+                      ${plato.seleccionado
+                        ? agotado
+                          ? "bg-red-500/5 border-red-500/40"
+                          : "bg-indigo-600/10 border-indigo-500 shadow-lg shadow-indigo-500/10"
+                        : limitAlcanzado
+                          ? "bg-slate-900 border-slate-800 opacity-50 cursor-not-allowed"
+                          : "bg-slate-900 border-slate-800 hover:border-slate-600 hover:bg-slate-800/50"
+                      }
+                    `}
+                  >
+                    {/* Checkbox */}
+                    <div className={`
+                      absolute top-3 right-3 w-5 h-5 rounded-full border-2 flex items-center justify-center
+                      transition-all ${
+                        plato.seleccionado
+                          ? agotado ? "bg-red-500 border-red-400" : "bg-indigo-600 border-indigo-500"
+                          : "border-slate-600"
+                      }
+                    `}>
+                      {plato.seleccionado && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
+                          <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8"
+                                strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
 
-      {/* ══════════════════════════════════════════════════
-          MODAL: CREAR / EDITAR PLATO
-      ══════════════════════════════════════════════════ */}
+                    <p className="text-sm font-semibold text-slate-200 pr-6 leading-tight">
+                      {plato.nombre_plato}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{plato.descripcion}</p>
+
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <p className="text-sm font-bold text-emerald-400">
+                        S/ {plato.precio.toFixed(2)}
+                      </p>
+                      {/* Badge AGOTADO en la card del menú del día */}
+                      {agotado && (
+                        <span className="flex items-center gap-1 text-[10px] font-black
+                                         text-red-400 bg-red-500/15 px-1.5 py-0.5 rounded
+                                         tracking-wider">
+                          <PackageX size={9} />
+                          AGOTADO
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Input stock */}
+                    {plato.seleccionado && (
+                      <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <label className="text-xs text-slate-400 whitespace-nowrap">Stock:</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={999}
+                          value={plato.stockInput}
+                          onChange={(e) => setStock(plato.id, e.target.value)}
+                          placeholder="20"
+                          className={`w-full rounded-lg px-2 py-1 text-sm font-bold text-center
+                                      focus:outline-none focus:ring-2 ${
+                            agotado
+                              ? "bg-red-500/10 border border-red-500/40 text-red-400 focus:ring-red-500"
+                              : "bg-slate-800 border border-indigo-500/40 text-slate-100 focus:ring-indigo-500"
+                          }`}
+                        />
+                        <span className="text-xs text-slate-500 whitespace-nowrap">uds.</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Resumen + botón publicar/actualizar */}
+          {platos.some((p) => p.seleccionado) && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-slate-300">
+                {hayMenuPublicado ? "Menú a actualizar" : "Menú a publicar"}
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {platos.filter((p) => p.seleccionado).map((p) => {
+                  const agotado = p.activo_hoy && p.stock_actual === 0 && p.seleccionado;
+                  return (
+                    <div key={p.id}
+                         className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs ${
+                           agotado
+                             ? "bg-red-500/10 border-red-500/30"
+                             : "bg-indigo-600/10 border-indigo-500/30"
+                         }`}>
+                      <span className="text-slate-200 font-medium">{p.nombre_plato}</span>
+                      {agotado
+                        ? <span className="text-red-400 font-black tracking-wider text-[10px]">AGOTADO</span>
+                        : <span className="text-indigo-400 font-bold">{p.stockInput || "0"} uds</span>
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={handlePublicar}
+                disabled={saving}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50
+                           rounded-xl text-white font-bold text-sm transition-colors flex
+                           items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+              >
+                <Zap size={15} />
+                {saving
+                  ? "Guardando…"
+                  : hayMenuPublicado
+                    ? "Actualizar Menú del Día"
+                    : "Publicar Menú del Día"
+                }
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ MODAL CREAR / EDITAR ════════════════════════════ */}
       {modalAbierto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={cerrarModal}
-          />
-
-          {/* Panel */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={cerrarModal} />
           <div className="relative z-10 w-full max-w-md bg-slate-900 rounded-2xl border
                           border-slate-700 shadow-2xl overflow-hidden">
-
-            {/* Header modal */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
               <h2 className="text-base font-bold text-slate-100">
                 {editando ? "Editar plato" : "Nuevo plato"}
               </h2>
-              <button
-                onClick={cerrarModal}
-                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200
-                           hover:bg-slate-800 transition-colors"
-              >
+              <button onClick={cerrarModal}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200
+                                 hover:bg-slate-800 transition-colors">
                 <X size={16} />
               </button>
             </div>
 
-            {/* Body modal */}
             <div className="p-5 space-y-4">
-              {/* Nombre */}
-              <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1.5">
-                  Nombre del plato *
-                </label>
-                <input
-                  type="text"
-                  value={form.nombre_plato}
-                  onChange={(e) => setForm((p) => ({ ...p, nombre_plato: e.target.value }))}
-                  placeholder="Ej: Lomo Saltado"
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100
-                             rounded-xl px-4 py-2.5 text-sm focus:outline-none
-                             focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600"
-                />
-              </div>
+              {[
+                { key: "nombre_plato", label: "Nombre del plato *", type: "text",   ph: "Ej: Lomo Saltado" },
+                { key: "precio",       label: "Precio (S/) *",       type: "number", ph: "0.00" },
+                { key: "descripcion",  label: "Descripción",         type: "text",   ph: "Ej: Con arroz y papas fritas" },
+              ].map((f) => (
+                <div key={f.key}>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1.5">{f.label}</label>
+                  <input
+                    type={f.type}
+                    value={form[f.key as keyof FormPlato]}
+                    onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                    placeholder={f.ph}
+                    step={f.key === "precio" ? "0.50" : undefined}
+                    min={f.key === "precio" ? 0 : undefined}
+                    className="w-full bg-slate-800 border border-slate-700 text-slate-100
+                               rounded-xl px-4 py-2.5 text-sm focus:outline-none
+                               focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600"
+                  />
+                </div>
+              ))}
 
-              {/* Precio */}
-              <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1.5">
-                  Precio (S/) *
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.50}
-                  value={form.precio}
-                  onChange={(e) => setForm((p) => ({ ...p, precio: e.target.value }))}
-                  placeholder="0.00"
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100
-                             rounded-xl px-4 py-2.5 text-sm focus:outline-none
-                             focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600"
-                />
-              </div>
-
-              {/* Descripción */}
-              <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1.5">
-                  Descripción
-                </label>
-                <input
-                  type="text"
-                  value={form.descripcion}
-                  onChange={(e) => setForm((p) => ({ ...p, descripcion: e.target.value }))}
-                  placeholder="Ej: Con arroz blanco y papas fritas"
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100
-                             rounded-xl px-4 py-2.5 text-sm focus:outline-none
-                             focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600"
-                />
-              </div>
-
-              {/* Error del form */}
               {formError && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10
                                 border border-red-500/30 text-red-400 text-sm">
@@ -627,22 +672,16 @@ export default function MenuConfig() {
               )}
             </div>
 
-            {/* Footer modal */}
             <div className="flex gap-3 px-5 pb-5">
-              <button
-                onClick={cerrarModal}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700
-                           text-slate-300 text-sm font-semibold transition-colors"
-              >
+              <button onClick={cerrarModal}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700
+                                 text-slate-300 text-sm font-semibold transition-colors">
                 Cancelar
               </button>
-              <button
-                onClick={handleGuardar}
-                disabled={guardandoForm}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500
-                           disabled:opacity-50 text-white text-sm font-bold
-                           transition-colors flex items-center justify-center gap-2"
-              >
+              <button onClick={handleGuardar} disabled={guardandoForm}
+                      className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500
+                                 disabled:opacity-50 text-white text-sm font-bold transition-colors
+                                 flex items-center justify-center gap-2">
                 <Save size={14} />
                 {guardandoForm ? "Guardando…" : editando ? "Guardar cambios" : "Crear plato"}
               </button>
@@ -651,15 +690,11 @@ export default function MenuConfig() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          MODAL: CONFIRMAR ELIMINACIÓN
-      ══════════════════════════════════════════════════ */}
+      {/* ══ MODAL CONFIRMAR ELIMINACIÓN ═════════════════════ */}
       {eliminando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setEliminando(null)}
-          />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+               onClick={() => setEliminando(null)} />
           <div className="relative z-10 w-full max-w-sm bg-slate-900 rounded-2xl border
                           border-slate-700 shadow-2xl p-6 space-y-4">
             <div className="flex items-center gap-3">
@@ -671,29 +706,21 @@ export default function MenuConfig() {
                 <p className="text-xs text-slate-500 mt-0.5">Esta acción no se puede deshacer</p>
               </div>
             </div>
-
             <p className="text-sm text-slate-400">
               ¿Seguro que quieres eliminar{" "}
               <span className="font-bold text-slate-200">"{eliminando.nombre_plato}"</span>{" "}
               del catálogo maestro?
             </p>
-
             <div className="flex gap-3 pt-1">
-              <button
-                onClick={() => setEliminando(null)}
-                disabled={confirmando}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700
-                           text-slate-300 text-sm font-semibold transition-colors"
-              >
+              <button onClick={() => setEliminando(null)} disabled={confirmando}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700
+                                 text-slate-300 text-sm font-semibold transition-colors">
                 Cancelar
               </button>
-              <button
-                onClick={handleEliminar}
-                disabled={confirmando}
-                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500
-                           disabled:opacity-50 text-white text-sm font-bold
-                           transition-colors flex items-center justify-center gap-2"
-              >
+              <button onClick={handleEliminar} disabled={confirmando}
+                      className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500
+                                 disabled:opacity-50 text-white text-sm font-bold transition-colors
+                                 flex items-center justify-center gap-2">
                 <Trash2 size={13} />
                 {confirmando ? "Eliminando…" : "Sí, eliminar"}
               </button>
